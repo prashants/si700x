@@ -8,8 +8,9 @@
 
 #include "si700x.h"
 
-#define INTERRUPT_EP_IN 0x82
-#define INTERRUPT_EP_OUT 0x02
+/* Pipes */
+#define PIPE_DATA_OUT      0x02
+#define PIPE_DATA_IN       0x82
 
 /* Request type */
 #define CMD_VEN_DEV_OUT    0x40
@@ -22,6 +23,15 @@
 #define REQ_SET_PROG       3
 #define REQ_GET_PORT_COUNT 4
 #define REQ_GET_BOARD_ID   5
+
+/* Usb transfer request */
+struct transfer_req {
+	u8 type;
+	u8 status;
+	u8 address;
+	u8 length;
+	u8 data[4];
+} __attribute__ ((__packed__));
 
 struct si700x_dev {
 	struct usb_device *	udev;			/* the usb device for this device */
@@ -43,13 +53,13 @@ static int si700x_open(struct inode *i, struct file *f)
 
 	interface = usb_find_interface(&si700x_driver, minor);
 	if (!interface) {
-		printk(KERN_ERR "si700x: error, can't find device for minor %d", minor);
+		printk(KERN_ERR "si700x: failed to find device for minor %d", minor);
 		return -ENODEV;
 	}
 
 	dev = usb_get_intfdata(interface);
 	if (!dev) {
-		printk(KERN_ERR "si700x: can't find device from interface\n");
+		printk(KERN_ERR "si700x: failed to get device from interface\n");
 		return -ENODEV;
 	}
 
@@ -66,7 +76,7 @@ static int si700x_release(struct inode *i, struct file *f)
 
 	dev = (struct si700x_dev *)f->private_data;
 	if (dev == NULL) {
-		printk(KERN_ERR "si700x: can't find device from interface\n");
+		printk(KERN_ERR "si700x: failed to find device from interface\n");
 		return -ENODEV;
 	}
 	return 0;
@@ -83,61 +93,98 @@ static ssize_t si700x_read(struct file *f, char __user *user_buffer, size_t coun
 	return count;
 }
 
+static int transferI2C(struct transfer_req *t, struct file *f)
+{
+	struct si700x_dev *dev;
+	struct urb *urb;
+	int retval = 0;
+
+	dev = (struct si700x_dev *)f->private_data;
+
+	urb = usb_alloc_urb(0, GFP_KERNEL);
+	if (!urb) {
+		printk(KERN_ERR "si700x: failed to allocate URB\n");
+		return -ENOMEM;
+	}
+	usb_fill_int_urb(urb, dev->udev,
+		 usb_sndintpipe(dev->udev, PIPE_DATA_OUT),
+		 t, sizeof(struct transfer_req),		// buffer, buffer length
+		 NULL,						// completion function
+		 NULL, 1);					// content, interval
+	retval = usb_submit_urb(urb, GFP_ATOMIC);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to submit URB %d\n", retval);
+		return retval;
+	}
+	msleep(1);
+	printk(KERN_INFO "si700x: URB status %d\n", urb->status);
+	return retval;
+}
+
 static ssize_t si700x_write(struct file *f, const char __user *user_buffer, size_t count, loff_t *ppos)
 {
 	struct si700x_dev *dev;
 	int retval = 0;
-	struct transfer_req {
-		char type;
-		char status;
-	        char address;
-		char length;
-		char data[4];
-	} __attribute__ ((__packed__));
 	struct transfer_req transfer_buf;
-	int transfer_buf_size = sizeof(transfer_buf);
+	int transfer_buf_size = sizeof(struct transfer_req);
+	u8 counter = 0;
 
 	printk(KERN_INFO "si700x: %s\n", __func__);
 
 	dev = (struct si700x_dev *)f->private_data;
 
+	for (counter = 0; counter < 4; counter++) {
 	/* transfer */
-	transfer_buf.type = XFER_TYPE_READ;
-	transfer_buf.status = 0x0;
-	transfer_buf.address = 0x00;
-	transfer_buf.length = 4;
-	transfer_buf.data[0] = 0x00;
+	transfer_buf.type = XFER_TYPE_WRITE_READ;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x40 + counter;	// slave id
+	transfer_buf.length = 0x04;	// max is 4 bytes
+	transfer_buf.data[0] = 0x80;	// register
+	transfer_buf.data[1] = 0x1F;	// register
+	transfer_buf.data[2] = 0x00;	// register
+	transfer_buf.data[3] = 0x00;	// register
 
 	retval = usb_bulk_msg(dev->udev,
-		usb_sndbulkpipe(dev->udev, INTERRUPT_EP_OUT),
+		usb_sndintpipe(dev->udev, PIPE_DATA_OUT),
 		&transfer_buf, transfer_buf_size,		// data, len 
 		&count, 0);					// actual len, timeout
 	if (retval < 0) {
-		printk(KERN_ERR "si700x: failed to write from device\n");
+		printk(KERN_ERR "si700x: failed to write\n");
 		return retval;
 	}
+	printk(KERN_INFO "si700x: **** counter %d\n", counter);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: buffer size %d\n", transfer_buf_size);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: count %d\n", count);
+
 	retval = usb_bulk_msg(dev->udev,
-		usb_rcvbulkpipe(dev->udev, INTERRUPT_EP_IN),
+		usb_rcvintpipe(dev->udev, PIPE_DATA_IN),
 		&transfer_buf, transfer_buf_size,		// data, len 
-		&count, HZ*5);					// actual len, timeout
+		&count, 0);					// actual len, timeout
 	if (retval < 0) {
 		printk(KERN_ERR "si700x: failed to read from device\n");
 		return retval;
 	}
-	printk(KERN_INFO "si700x: data1 %c\n", transfer_buf.data[0]);
-	printk(KERN_INFO "si700x: data2 %c\n", transfer_buf.data[1]);
-	printk(KERN_INFO "si700x: data3 %c\n", transfer_buf.data[2]);
-	printk(KERN_INFO "si700x: data4 %c\n", transfer_buf.data[3]);
-	printk(KERN_INFO "si700x: status %c\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
 	printk(KERN_INFO "si700x: count %d\n", count);
-
+	if (transfer_buf.status != 0x02) { printk(KERN_INFO "FOUND!!\n"); break; }
+	}
 	/* check if slave is present */
 	//printk(KERN_INFO "si700x: checking if slave present %d\n", port_count);
 	//urb = usb_alloc_urb(0, GFP_KERNEL);
 	//transfer_buffer = usb_alloc_coherent(dev->udev, 1, GFP_KERNEL, &urb->transfer_dma);
 	//transfer_buffer_size = 1;
 	//usb_fill_int_urb(urb, dev->udev,
-	//	usb_rcvintpipe(dev->udev, INTERRUPT_EP_IN),
+	//	usb_rcvintpipe(dev->udev, PIPE_DATA_IN),
 	//	transfer_buffer, transfer_buffer_size,
 	//	slave_detect_complete,
 	//	NULL, 0);
