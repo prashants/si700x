@@ -93,11 +93,19 @@ static ssize_t si700x_read(struct file *f, char __user *user_buffer, size_t coun
 	return count;
 }
 
+static void completion_callback(struct urb *urb)
+{
+	printk(KERN_INFO "si700x: %s\n", __func__);
+}
+
+
 static int transferI2C(struct transfer_req *t, struct file *f)
 {
 	struct si700x_dev *dev;
 	struct urb *urb;
 	int retval = 0;
+
+	printk(KERN_INFO "si700x: %s\n", __func__);
 
 	dev = (struct si700x_dev *)f->private_data;
 
@@ -109,15 +117,30 @@ static int transferI2C(struct transfer_req *t, struct file *f)
 	usb_fill_int_urb(urb, dev->udev,
 		 usb_sndintpipe(dev->udev, PIPE_DATA_OUT),
 		 t, sizeof(struct transfer_req),		// buffer, buffer length
-		 NULL,						// completion function
+		 completion_callback,				// completion function
+		 NULL, 1);					// content, interval
+	retval = usb_submit_urb(urb, GFP_KERNEL);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to submit write URB %d\n", retval);
+		return retval;
+	}
+	msleep(100);
+	printk(KERN_INFO "si700x: URB write status %d\n", urb->status);
+
+	usb_fill_int_urb(urb, dev->udev,
+		 usb_rcvintpipe(dev->udev, PIPE_DATA_IN),
+		 t, sizeof(struct transfer_req),		// buffer, buffer length
+		 completion_callback,				// completion function
 		 NULL, 1);					// content, interval
 	retval = usb_submit_urb(urb, GFP_ATOMIC);
 	if (retval < 0) {
-		printk(KERN_ERR "si700x: failed to submit URB %d\n", retval);
+		printk(KERN_ERR "si700x: failed to submit read URB %d\n", retval);
 		return retval;
 	}
-	msleep(1);
-	printk(KERN_INFO "si700x: URB status %d\n", urb->status);
+	msleep(100);
+	printk(KERN_INFO "si700x: URB read status %d\n", urb->status);
+
+	usb_free_urb(urb);
 	return retval;
 }
 
@@ -126,73 +149,43 @@ static ssize_t si700x_write(struct file *f, const char __user *user_buffer, size
 	struct si700x_dev *dev;
 	int retval = 0;
 	struct transfer_req transfer_buf;
-	int transfer_buf_size = sizeof(struct transfer_req);
 	u8 counter = 0;
 
 	printk(KERN_INFO "si700x: %s\n", __func__);
 
 	dev = (struct si700x_dev *)f->private_data;
 
+	printk(KERN_INFO "*********** START **************\n");
+
 	for (counter = 0; counter < 4; counter++) {
 	/* transfer */
-	transfer_buf.type = XFER_TYPE_WRITE_READ;
+	transfer_buf.type = XFER_TYPE_WRITE;
 	transfer_buf.status = 0x00;	// status
 	transfer_buf.address = 0x40 + counter;	// slave id
-	transfer_buf.length = 0x04;	// max is 4 bytes
+	transfer_buf.length = 0x00;	// max is 4 bytes
 	transfer_buf.data[0] = 0x80;	// register
-	transfer_buf.data[1] = 0x1F;	// register
+	transfer_buf.data[1] = 0x00;	// register
 	transfer_buf.data[2] = 0x00;	// register
 	transfer_buf.data[3] = 0x00;	// register
 
-	retval = usb_bulk_msg(dev->udev,
-		usb_sndintpipe(dev->udev, PIPE_DATA_OUT),
-		&transfer_buf, transfer_buf_size,		// data, len 
-		&count, 0);					// actual len, timeout
+	retval = transferI2C(&transfer_buf, f);
 	if (retval < 0) {
-		printk(KERN_ERR "si700x: failed to write\n");
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
 		return retval;
 	}
 	printk(KERN_INFO "si700x: **** counter %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
 	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
-	printk(KERN_INFO "si700x: buffer size %d\n", transfer_buf_size);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
 	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
 	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
 	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
 	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
-	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
-	printk(KERN_INFO "si700x: count %d\n", count);
 
-	retval = usb_bulk_msg(dev->udev,
-		usb_rcvintpipe(dev->udev, PIPE_DATA_IN),
-		&transfer_buf, transfer_buf_size,		// data, len 
-		&count, 0);					// actual len, timeout
-	if (retval < 0) {
-		printk(KERN_ERR "si700x: failed to read from device\n");
-		return retval;
+	if (transfer_buf.status != 0x02) { printk(KERN_INFO "***********FOUND!!**************\n"); break; }
+
 	}
-	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
-	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
-	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
-	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
-	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
-	printk(KERN_INFO "si700x: count %d\n", count);
-	if (transfer_buf.status != 0x02) { printk(KERN_INFO "FOUND!!\n"); break; }
-	}
-	/* check if slave is present */
-	//printk(KERN_INFO "si700x: checking if slave present %d\n", port_count);
-	//urb = usb_alloc_urb(0, GFP_KERNEL);
-	//transfer_buffer = usb_alloc_coherent(dev->udev, 1, GFP_KERNEL, &urb->transfer_dma);
-	//transfer_buffer_size = 1;
-	//usb_fill_int_urb(urb, dev->udev,
-	//	usb_rcvintpipe(dev->udev, PIPE_DATA_IN),
-	//	transfer_buffer, transfer_buffer_size,
-	//	slave_detect_complete,
-	//	NULL, 0);
-	//retval = usb_submit_urb(urb, GFP_KERNEL);
-	//printk("si700x: transfer return value %d\n", retval);
-	//msleep(500);
-	//usb_free_coherent(dev->udev, 1, transfer_buffer, urb->transfer_dma);
-	//usb_free_urb(urb);
 
 	return count;
 }
@@ -203,6 +196,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	u16 version = 0;
 	u8 port_count = 0;
 	u8 board_id = 0;
+	u16 port_id = 0;
 	struct si700x_dev *dev;
 
 	printk(KERN_INFO "si700x: %s\n", __func__);
@@ -287,6 +281,62 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			return retval;
 		}
 		return __put_user(board_id, (u8 __user *)arg);
+
+	case SI700X_SETPROG_ON:
+		/* turn on programming */
+		retval = usb_control_msg(dev->udev,
+			usb_sndctrlpipe(dev->udev, 0),
+			REQ_SET_PROG, CMD_VEN_DEV_OUT,		// request, request type 
+			1, 0,					// value, index - port
+			NULL, 0, 0);				// data, size, timeout
+		if (retval < 0) {
+			printk(KERN_ERR "si700x: failed to turn the programming ON\n");
+			return retval;
+		}
+		return 0;
+
+	case SI700X_SETPROG_OFF:
+		/* turn off programming */
+		retval = usb_control_msg(dev->udev,
+			usb_sndctrlpipe(dev->udev, 0),
+			REQ_SET_PROG, CMD_VEN_DEV_OUT,		// request, request type 
+			0, 0,					// value, index - port
+			NULL, 0, 0);				// data, size, timeout
+		if (retval < 0) {
+			printk(KERN_ERR "si700x: failed to turn the programming OFF\n");
+			return retval;
+		}
+		return 0;
+
+	case SI700X_SETSLEEP_ON:
+		port_id = arg;
+		printk(KERN_ERR "si700x: sleeping ON port %d\n", port_id);
+		/* turn on sleeping */
+		retval = usb_control_msg(dev->udev,
+			usb_sndctrlpipe(dev->udev, 0),
+			REQ_SET_SLEEP, CMD_VEN_DEV_OUT,		// request, request type 
+			0, port_id,				// value, index - port
+			NULL, 0, 0);				// data, size, timeout
+		if (retval < 0) {
+			printk(KERN_ERR "si700x: failed to turn the sleeping ON for port %d\n", port_id);
+			return retval;
+		}
+		return 0;
+
+	case SI700X_SETSLEEP_OFF:
+		port_id = arg;
+		printk(KERN_ERR "si700x: sleeping OFF port %d\n", port_id);
+		/* turn off sleeping */
+		retval = usb_control_msg(dev->udev,
+			usb_sndctrlpipe(dev->udev, 0),
+			REQ_SET_SLEEP, CMD_VEN_DEV_OUT,		// request, request type 
+			0, port_id,				// value, index - port
+			NULL, 0, 0);				// data, size, timeout
+		if (retval < 0) {
+			printk(KERN_ERR "si700x: failed to turn the sleeping OFF for port %d\n", port_id);
+			return retval;
+		}
+		return 0;
 
 	}
 	return -EINVAL;
