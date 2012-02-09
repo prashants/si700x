@@ -150,21 +150,21 @@ static ssize_t si700x_write(struct file *f, const char __user *user_buffer, size
 	int retval = 0;
 	struct transfer_req transfer_buf;
 	u8 counter = 0;
+	u16 temp = 0;
 
 	printk(KERN_INFO "si700x: %s\n", __func__);
 
 	dev = (struct si700x_dev *)f->private_data;
 
-	printk(KERN_INFO "*********** START **************\n");
+	printk(KERN_INFO "*********** START TEMPERATURE **************\n");
 
-	for (counter = 0; counter < 4; counter++) {
 	/* transfer */
 	transfer_buf.type = XFER_TYPE_WRITE;
 	transfer_buf.status = 0x00;	// status
-	transfer_buf.address = 0x40 + counter;	// slave id
-	transfer_buf.length = 0x00;	// max is 4 bytes
-	transfer_buf.data[0] = 0x80;	// register
-	transfer_buf.data[1] = 0x00;	// register
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x01;	// max is 4 bytes
+	transfer_buf.data[0] = REG_CFG2;	// register
+	transfer_buf.data[1] = CFG2_EN_TEST_REG;	// register
 	transfer_buf.data[2] = 0x00;	// register
 	transfer_buf.data[3] = 0x00;	// register
 
@@ -183,9 +183,319 @@ static ssize_t si700x_write(struct file *f, const char __user *user_buffer, size
 	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
 	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
 
-	if (transfer_buf.status != 0x02) { printk(KERN_INFO "***********FOUND!!**************\n"); break; }
-
+	if (transfer_buf.status == 0x02) {
+		printk(KERN_ERR "si700x: not found at %X\n", transfer_buf.address);
+		return -EFAULT;
 	}
+	if (transfer_buf.status == 0x01) {
+		printk(KERN_ERR "si700x: found at %X\n", transfer_buf.address);
+	}
+
+	/* clear data */
+	transfer_buf.type = XFER_TYPE_WRITE;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x02;	// max is 4 bytes
+	transfer_buf.data[0] = REG_CFG1;	// register
+	transfer_buf.data[1] = 0x00;	// register
+	transfer_buf.data[2] = 0x00;	// register
+	transfer_buf.data[3] = 0x00;	// register
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** clear %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	/* write command data */
+	transfer_buf.type = XFER_TYPE_WRITE;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x02;	// max is 4 bytes
+	transfer_buf.data[0] = REG_CFG1;	// register
+	transfer_buf.data[1] = 0x11;	// data
+	transfer_buf.data[2] = 0x00;	// data
+	transfer_buf.data[3] = 0x00;	// data
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** write %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	msleep(10000);
+
+	/* read status */
+	transfer_buf.type = XFER_TYPE_WRITE_READ;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x01;	// max is 4 bytes
+	transfer_buf.data[0] = REG_STATUS;	// register
+	transfer_buf.data[1] = 0x00;	// data
+	transfer_buf.data[2] = 0x00;	// data
+	transfer_buf.data[3] = 0x00;	// data
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** status %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	/* read data 0 */
+	transfer_buf.type = XFER_TYPE_WRITE_READ;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x01;	// max is 4 bytes
+	transfer_buf.data[0] = 0x01;	// register
+	transfer_buf.data[1] = 0x00;	// data
+	transfer_buf.data[2] = 0x00;	// data
+	transfer_buf.data[3] = 0x00;	// data
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** data 1 %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	temp = transfer_buf.data[0];
+	temp = temp << 6;
+
+	/* read data 1 */
+	transfer_buf.type = XFER_TYPE_WRITE_READ;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x01;	// max is 4 bytes
+	transfer_buf.data[0] = 0x02;	// register
+	transfer_buf.data[1] = 0x00;	// data
+	transfer_buf.data[2] = 0x00;	// data
+	transfer_buf.data[3] = 0x00;	// data
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** data 2 %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	transfer_buf.data[0] = transfer_buf.data[0] >> 2;
+	temp = temp | transfer_buf.data[0];
+	temp = (temp/32) - 50;
+	printk(KERN_INFO "si700x: temperature %d\n", temp);
+
+	printk(KERN_INFO "*********** START HUMIDITY **************\n");
+
+	/* transfer */
+	transfer_buf.type = XFER_TYPE_WRITE;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x01;	// max is 4 bytes
+	transfer_buf.data[0] = REG_CFG2;	// register
+	transfer_buf.data[1] = CFG2_EN_TEST_REG;	// register
+	transfer_buf.data[2] = 0x00;	// register
+	transfer_buf.data[3] = 0x00;	// register
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** counter %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	if (transfer_buf.status == 0x02) {
+		printk(KERN_ERR "si700x: not found at %X\n", transfer_buf.address);
+		return -EFAULT;
+	}
+	if (transfer_buf.status == 0x01) {
+		printk(KERN_ERR "si700x: found at %X\n", transfer_buf.address);
+	}
+
+	/* clear data */
+	transfer_buf.type = XFER_TYPE_WRITE;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x02;	// max is 4 bytes
+	transfer_buf.data[0] = REG_CFG1;	// register
+	transfer_buf.data[1] = 0x00;	// register
+	transfer_buf.data[2] = 0x00;	// register
+	transfer_buf.data[3] = 0x00;	// register
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** clear %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	/* write command data */
+	transfer_buf.type = XFER_TYPE_WRITE;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x02;	// max is 4 bytes
+	transfer_buf.data[0] = REG_CFG1;	// register
+	transfer_buf.data[1] = 0x01;	// data
+	transfer_buf.data[2] = 0x00;	// data
+	transfer_buf.data[3] = 0x00;	// data
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** write %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	msleep(10000);
+
+	/* read status */
+	transfer_buf.type = XFER_TYPE_WRITE_READ;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x01;	// max is 4 bytes
+	transfer_buf.data[0] = REG_STATUS;	// register
+	transfer_buf.data[1] = 0x00;	// data
+	transfer_buf.data[2] = 0x00;	// data
+	transfer_buf.data[3] = 0x00;	// data
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** status %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	/* read data 0 */
+	transfer_buf.type = XFER_TYPE_WRITE_READ;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x01;	// max is 4 bytes
+	transfer_buf.data[0] = 0x01;	// register
+	transfer_buf.data[1] = 0x00;	// data
+	transfer_buf.data[2] = 0x00;	// data
+	transfer_buf.data[3] = 0x00;	// data
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** data 1 %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	temp = transfer_buf.data[0];
+	temp = temp << 4;
+
+	/* read data 1 */
+	transfer_buf.type = XFER_TYPE_WRITE_READ;
+	transfer_buf.status = 0x00;	// status
+	transfer_buf.address = 0x42;	// slave id
+	transfer_buf.length = 0x01;	// max is 4 bytes
+	transfer_buf.data[0] = 0x02;	// register
+	transfer_buf.data[1] = 0x00;	// data
+	transfer_buf.data[2] = 0x00;	// data
+	transfer_buf.data[3] = 0x00;	// data
+
+	retval = transferI2C(&transfer_buf, f);
+	if (retval < 0) {
+		printk(KERN_ERR "si700x: failed to transfer I2C packet\n");
+		return retval;
+	}
+	printk(KERN_INFO "si700x: **** data 2 %d\n", counter);
+	printk(KERN_INFO "si700x: type %x\n", transfer_buf.type);
+	printk(KERN_INFO "si700x: status %x\n", transfer_buf.status);
+	printk(KERN_INFO "si700x: address %x\n", transfer_buf.address);
+	printk(KERN_INFO "si700x: length %d\n", transfer_buf.length);
+	printk(KERN_INFO "si700x: data1 %x\n", transfer_buf.data[0]);
+	printk(KERN_INFO "si700x: data2 %x\n", transfer_buf.data[1]);
+	printk(KERN_INFO "si700x: data3 %x\n", transfer_buf.data[2]);
+	printk(KERN_INFO "si700x: data4 %x\n", transfer_buf.data[3]);
+
+	transfer_buf.data[0] = transfer_buf.data[0] >> 4;
+	temp = temp | transfer_buf.data[0];
+	temp = (temp/16) - 24;
+	printk(KERN_INFO "si700x: humidity %d\n", temp);
+
 
 	return count;
 }
