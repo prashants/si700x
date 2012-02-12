@@ -13,8 +13,8 @@
 #define SI700X_BOARDID		_IOR(SI700X_IOC_MAGIC, 5, int)
 #define SI700X_SETPROG_ON	_IO(SI700X_IOC_MAGIC, 6)
 #define SI700X_SETPROG_OFF	_IO(SI700X_IOC_MAGIC, 7)
-#define SI700X_SETSLEEP_ON	_IOW(SI700X_IOC_MAGIC, 8, int)
-#define SI700X_SETSLEEP_OFF	_IO(SI700X_IOC_MAGIC, 9)
+#define SI700X_SETSLEEP_ON	_IOW(SI700X_IOC_MAGIC, 8, unsigned int)
+#define SI700X_SETSLEEP_OFF	_IOW(SI700X_IOC_MAGIC, 9, unsigned int)
 
 #define XFER_TYPE_WRITE          0x10
 #define XFER_TYPE_READ           0x20
@@ -66,5 +66,36 @@
 #define XFER_STATUS_BAD_LENGTH   0x06
 #define XFER_STATUS_BAD_MODE     0x07
 #define XFER_STATUS_BAD_STATE    0x09
+
+/* Pipes */
+#define PIPE_DATA_OUT      0x02
+#define PIPE_DATA_IN       0x82
+
+/* Request type */
+#define CMD_VEN_DEV_OUT    0x40
+#define CMD_VEN_DEV_IN     0xC0
+
+/* Request */
+#define REQ_GET_VERSION    0
+#define REQ_SET_LED        1
+#define REQ_SET_SLEEP      2
+#define REQ_SET_PROG       3
+#define REQ_GET_PORT_COUNT 4
+#define REQ_GET_BOARD_ID   5
+
+/* Maximum data bytes that can be transfered with ReadData() and WriteData() */
+#define MAX_DATA_LENGTH  3
+
+/* Maximum number of slaves on a Si7001 board */
+#define MAX_SLAVE_COUNT  8
+
+/* Maximum number of bytes in a packet */
+#define MAX_PACKET_SIZE  64
+
+/* Maximum number of I2C data bytes that can be read or written */
+#define MAX_XFER_LENGTH  4
+
+/* Maximum number of transfer requests in a packet */
+#define MAX_XFER_COUNT   (MAX_PACKET_SIZE/(4+MAX_XFER_LENGTH))
 
 #endif
