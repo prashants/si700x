@@ -16,10 +16,18 @@ struct transfer_req {
 	char data[4];
 } __attribute__ ((__packed__));
 
-int fd;
+int fd;			/* the deivce file */
+int fast_conv = 0;
+unsigned char board_address = 0x00;
 
+int board_status(unsigned char);
 int get_temperature(void);
 int get_humidity(void);
+void fast_conversion(int);
+int heater(int);
+unsigned char get_device_id();
+
+#define DELAY sleep(3)
 
 int main()
 {
@@ -27,13 +35,15 @@ int main()
 	char port_count;
 	char board_id;
 	unsigned int port_id;
+	unsigned char address = 0x00;
+	unsigned char sensor_device_id;
 
 	int temperature;
 	int humidity;
 
 	fd = open("/dev/si700x0", O_RDWR);
 	if (fd < 0) {
-		printf("cannot open device file\n");
+		printf("Cannot open device file\n");
 		return 1;
 	}
 
@@ -78,6 +88,31 @@ int main()
 	/* give time for the ports to wake up */
 	sleep(10);
 
+	// heater(0);
+	fast_conversion(0);
+
+	/* scan for board address */
+	for (address = 0x40; address <= 0x43; address++) {
+		if (board_status(address)) {
+			board_address = address;
+			printf("Board found at address 0x%X\n", board_address);
+		}
+	}
+	if (!board_address) {
+		printf("Board not found\n");
+		return 0;
+	}
+
+	/* get sensor deivce ID */
+	sensor_device_id = get_device_id();
+	if (sensor_device_id < 0) {
+		printf("Error reading sensor device ID\n");
+	} else {
+		printf("Device ID : %X\n", sensor_device_id);
+	}
+
+	DELAY;
+
 	/* read temperature */
 	temperature = get_temperature();
 	if (temperature < 0) {
@@ -85,6 +120,8 @@ int main()
 	} else {
 		printf("Current temperature is : %f\n", (((float)temperature / 32.0) - 50.0));
 	}
+
+	DELAY;
 
 	/* read humidity */
 	humidity = get_humidity();
@@ -104,9 +141,30 @@ int main()
 	return 0;
 }
 
+int board_status(unsigned char board_id)
+{
+	struct transfer_req data;
+
+	/* clear status */
+	data.type = XFER_TYPE_WRITE;
+	data.status = 0x00;
+	data.address = board_id;
+	data.length = 0x00;
+	data.data[0] = REG_CFG1; 
+	data.data[1] = 0x00;
+	data.data[2] = 0x00;
+	data.data[3] = 0x00;
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
+	if (data.status == 1) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
 int get_temperature()
 {
-	int size = 0;
 	int counter = 0;
 	unsigned short value = 0;
 	unsigned short temp = 0;
@@ -116,49 +174,57 @@ int get_temperature()
 	/* clear status */
 	data.type = XFER_TYPE_WRITE;
 	data.status = 0x00;
-	data.address = 0x42;
+	data.address = board_address;
 	data.length = 0x02;
 	data.data[0] = REG_CFG1; 
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	size = write(fd, &data, sizeof(data));
-	size = read(fd, &data, sizeof(data));
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
 	if (data.status != 1) {
 		printf("Error clearing status\n");
 		return -1;
 	}
 
+	DELAY;
+
 	/* write temperature */
 	data.type = XFER_TYPE_WRITE;
 	data.status = 0x00;
-	data.address = 0x42;
+	data.address = board_address;
 	data.length = 0x02;
-	data.data[0] = REG_CFG1; 
+	data.data[0] = REG_CFG1;
+	if (fast_conv == 0)
+		data.data[1] = 0x11;
+	else
+		data.data[1] = 0x20 | 0x11;
 	data.data[1] = 0x11;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	size = write(fd, &data, sizeof(data));
-	size = read(fd, &data, sizeof(data));
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
 	if (data.status != 1) {
 		printf("Error writing temparature command\n");
 		return -1;
 	}
 
-	sleep(1);
+	DELAY;
+	DELAY;
+	DELAY;
 
 	/* check status */
 	while (1) {
 		data.type = XFER_TYPE_WRITE_READ;
 		data.status = 0x00;
-		data.address = 0x42;
+		data.address = board_address;
 		data.length = 0x01;
 		data.data[0] = REG_STATUS; 
 		data.data[1] = 0x00;
 		data.data[2] = 0x00;
 		data.data[3] = 0x00;
-		size = write(fd, &data, sizeof(data));
-		size = read(fd, &data, sizeof(data));
+		write(fd, &data, sizeof(data));
+		read(fd, &data, sizeof(data));
 		if (data.status != 1) {
 			printf("Error reading status\n");
 			return -1;
@@ -173,17 +239,19 @@ int get_temperature()
 		printf("counter %d\n", counter);
 	}
 
+	DELAY;
+
 	/* read 1 */
 	data.type = XFER_TYPE_WRITE_READ;
 	data.status = 0x00;
-	data.address = 0x42;
+	data.address = board_address;
 	data.length = 0x02;
 	data.data[0] = REG_DATA; 
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	size = write(fd, &data, sizeof(data));
-	size = read(fd, &data, sizeof(data));
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
 	if (data.status != 1) {
 		printf("Error reading data register 1\n");
 		return -1;
@@ -191,17 +259,19 @@ int get_temperature()
 	value = data.data[0];
 	value = value << 6;
 
+	DELAY;
+
 	/* read 2 */
 	data.type = XFER_TYPE_WRITE_READ;
 	data.status = 0x00;
-	data.address = 0x42;
+	data.address = board_address;
 	data.length = 0x02;
 	data.data[0] = REG_DATA+1; 
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	size = write(fd, &data, sizeof(data));
-	size = read(fd, &data, sizeof(data));
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
 	if (data.status != 1) {
 		printf("Error reading data register 2\n");
 		return -1;
@@ -213,7 +283,6 @@ int get_temperature()
 
 int get_humidity()
 {
-	int size = 0;
 	int counter = 0;
 	unsigned short value = 0;
 	unsigned short temp = 0;
@@ -223,49 +292,56 @@ int get_humidity()
 	/* clear status */
 	data.type = XFER_TYPE_WRITE;
 	data.status = 0x00;
-	data.address = 0x42;
+	data.address = board_address;
 	data.length = 0x02;
 	data.data[0] = REG_CFG1; 
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	size = write(fd, &data, sizeof(data));
-	size = read(fd, &data, sizeof(data));
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
 	if (data.status != 1) {
 		printf("Error clearing status\n");
 		return -1;
 	}
 
+	DELAY;
+
 	/* write humidity */
 	data.type = XFER_TYPE_WRITE;
 	data.status = 0x00;
-	data.address = 0x42;
+	data.address = board_address;
 	data.length = 0x02;
 	data.data[0] = REG_CFG1; 
-	data.data[1] = 0x01;
+	if (fast_conv == 0)
+		data.data[1] = 0x01;
+	else
+		data.data[1] = 0x20 | 0x01;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	size = write(fd, &data, sizeof(data));
-	size = read(fd, &data, sizeof(data));
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
 	if (data.status != 1) {
 		printf("Error writing humidity command\n");
 		return -1;
 	}
 
-	sleep(1);
+	DELAY;
+	DELAY;
+	DELAY;
 
 	/* check status */
 	while (1) {
 		data.type = XFER_TYPE_WRITE_READ;
 		data.status = 0x00;
-		data.address = 0x42;
+		data.address = board_address;
 		data.length = 0x01;
 		data.data[0] = REG_STATUS; 
 		data.data[1] = 0x00;
 		data.data[2] = 0x00;
 		data.data[3] = 0x00;
-		size = write(fd, &data, sizeof(data));
-		size = read(fd, &data, sizeof(data));
+		write(fd, &data, sizeof(data));
+		read(fd, &data, sizeof(data));
 		if (data.status != 1) {
 			printf("Error reading status\n");
 			return -1;
@@ -279,17 +355,19 @@ int get_humidity()
 		counter++;
 	}
 
+	DELAY;
+
 	/* read 1 */
 	data.type = XFER_TYPE_WRITE_READ;
 	data.status = 0x00;
-	data.address = 0x42;
+	data.address = board_address;
 	data.length = 0x02;
 	data.data[0] = REG_DATA; 
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	size = write(fd, &data, sizeof(data));
-	size = read(fd, &data, sizeof(data));
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
 	if (data.status != 1) {
 		printf("Error reading data register 1\n");
 		return -1;
@@ -297,22 +375,95 @@ int get_humidity()
 	value = data.data[0];
 	value = value << 4;
 
+	DELAY;
+
 	/* read 2 */
 	data.type = XFER_TYPE_WRITE_READ;
 	data.status = 0x00;
-	data.address = 0x42;
+	data.address = board_address;
 	data.length = 0x02;
 	data.data[0] = REG_DATA+1; 
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	size = write(fd, &data, sizeof(data));
-	size = read(fd, &data, sizeof(data));
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
 	if (data.status != 1) {
 		printf("Error reading data register 2\n");
 		return -1;
 	}
 	temp = data.data[0];
 	value = value | (temp >> 4);
+	return value;
+}
+
+/*
+ * @status - 1 to enable heater
+ * Enable or disable heater by setting bit 3
+ * in the Config2 register to 1
+ */
+int heater(int status)
+{
+	struct transfer_req data;
+
+	data.type = XFER_TYPE_WRITE;
+	data.status = 0x00;
+	data.address = board_address;
+	data.length = 0x02;
+	data.data[0] = REG_CFG2; 
+	if (status == 0)
+		data.data[1] = 0x08;
+	else
+		data.data[1] = 0x00;
+	data.data[2] = 0x00;
+	data.data[3] = 0x00;
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
+	if (data.status != 1) {
+		printf("Error setting heater\n");
+		return -1;
+	}
+	return 0;
+}
+
+/*
+ * @status - 1 to enable fast conversion
+ * Enable or disable fast conversion by setting bit 5
+ * in the Config1 register to 1
+ */
+void fast_conversion(int status)
+{
+	if (status == 0)
+		fast_conv = 0;
+	else
+		fast_conv = 1;
+}
+
+/*
+ * Get the device id of the I2C sensor connected
+ */
+unsigned char get_device_id()
+{
+	unsigned char value = 0;
+
+	struct transfer_req data;
+
+	/* get I2C sensor device ID  */
+	data.type = XFER_TYPE_WRITE_READ;
+	data.status = 0x00;
+	data.address = board_address;
+	data.length = 0x01;
+	data.data[0] = REG_DEVICE_ID; 
+	data.data[2] = 0x00;
+	data.data[3] = 0x00;
+	write(fd, &data, sizeof(data));
+	read(fd, &data, sizeof(data));
+	if (data.status != 1) {
+		printf("Error getting I2C sensor device ID\n");
+		return -1;
+	}
+
+	value = data.data[0];
+	value = value >> 4;
 	return value;
 }

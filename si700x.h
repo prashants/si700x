@@ -29,6 +29,7 @@
 #define REG_DATA           0x01
 #define REG_CFG1           0x03
 #define REG_CFG2           0x04
+#define REG_DEVICE_ID      0x11
 #define REG_RAW_DATA       0x29
 
 /* Status Register */

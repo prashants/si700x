@@ -5,6 +5,7 @@
 #include <linux/slab.h>
 #include <linux/usb.h>
 #include <linux/ioctl.h>
+#include <linux/mutex.h>
 
 #include "si700x.h"
 
@@ -18,11 +19,12 @@ struct transfer_req {
 } __attribute__ ((__packed__));
 
 struct si700x_dev {
-	struct usb_device *	udev;			/* the usb device for this device */
-	struct usb_interface *	interface;		/* the interface for this device */
+	struct usb_device *udev;		/* the usb device for this device */
+	struct usb_interface *interface;	/* the interface for this device */
 	struct transfer_req buffer;
 	int buffer_size;
 	int buffer_status;
+	struct mutex lock;
 };
 #define to_dev(d) container_of(d, struct si700x_dev, kref)
 
@@ -34,7 +36,7 @@ static int si700x_open(struct inode *i, struct file *f)
 	struct usb_interface *interface;
 	int minor;
 
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 
 	minor = iminor(i);
 
@@ -51,7 +53,9 @@ static int si700x_open(struct inode *i, struct file *f)
 	}
 
 	/* save our object in the file's private structure */
+	mutex_lock(&dev->lock);
 	f->private_data = dev;
+	mutex_unlock(&dev->lock);
 	return 0;
 }
 
@@ -59,14 +63,16 @@ static int si700x_release(struct inode *i, struct file *f)
 {
 	struct si700x_dev *dev;
 
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 
 	dev = (struct si700x_dev *)f->private_data;
 	if (dev == NULL) {
 		printk(KERN_ERR "Si700x: failed to find device from interface\n");
 		return -ENODEV;
 	}
+	mutex_lock(&dev->lock);
 	f->private_data = NULL;
+	mutex_unlock(&dev->lock);
 	return 0;
 }
 
@@ -80,7 +86,7 @@ static ssize_t si700x_read(struct file *f, char __user *user_buffer, size_t coun
 	int retval = 0;
 	int actual_length = 0;
 
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 
 	dev = (struct si700x_dev *)f->private_data;
 
@@ -96,6 +102,13 @@ static ssize_t si700x_read(struct file *f, char __user *user_buffer, size_t coun
 		return -EFAULT;
 	}
 
+	/* check access to user space buffer */
+	if (!access_ok(VERIFY_WRITE, user_buffer, dev->buffer_size)) {
+		printk(KERN_ERR "Si700x: invalid user space data\n");
+		return -EFAULT;
+	}
+
+	mutex_lock(&dev->lock);
 	dev->buffer_status = 0;
 
 	retval = usb_bulk_msg(dev->udev,
@@ -104,22 +117,26 @@ static ssize_t si700x_read(struct file *f, char __user *user_buffer, size_t coun
 		&actual_length, 0);		// bytes written, interval
 	if (retval < 0) {
 		printk(KERN_ERR "Si700x: failed to read URB\n");
+		mutex_unlock(&dev->lock);
 		return retval;
 	}
 
 	/* check if the read status is ok */
 	if (dev->buffer.status != XFER_STATUS_SUCCESS) {
 		printk(KERN_ERR "Si700x: device returned error status %d\n", dev->buffer.status);
+		mutex_unlock(&dev->lock);
 		return -EFAULT;
 	}
 
 	/* saving the original data in the buffer for the USB read function */
 	if (copy_to_user(user_buffer, &dev->buffer, dev->buffer_size)) {
 		printk(KERN_ERR "Si700x: failed to copy data to user space\n");
+		mutex_unlock(&dev->lock);
 		return -EFAULT;
 	}
 
 	dev->buffer_status = 1;
+	mutex_unlock(&dev->lock);
 
 	return actual_length;
 }
@@ -134,7 +151,7 @@ static ssize_t si700x_write(struct file *f, const char __user *user_buffer, size
 	int retval = 0;
 	int actual_length = 0;
 
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 
 	dev = (struct si700x_dev *)f->private_data;
 
@@ -144,20 +161,19 @@ static ssize_t si700x_write(struct file *f, const char __user *user_buffer, size
 		return -EFAULT;
 	}
 
-	/* saving the original data in the buffer for the USB read function */
-	if (copy_from_user(&dev->buffer, user_buffer, dev->buffer_size)) {
-		printk(KERN_ERR "Si700x: failed to copy data from user space\n");
+	/* check access to user space buffer */
+	if (!access_ok(VERIFY_READ, user_buffer, dev->buffer_size)) {
+		printk(KERN_ERR "Si700x: invalid user space data\n");
 		return -EFAULT;
 	}
 
-	printk(KERN_INFO "si700x: usb %x\n", dev->buffer.type);
-	printk(KERN_INFO "si700x: usb %x\n", dev->buffer.status);
-	printk(KERN_INFO "si700x: usb %x\n", dev->buffer.address);
-	printk(KERN_INFO "si700x: usb %x\n", dev->buffer.length);
-	printk(KERN_INFO "si700x: usb %x\n", dev->buffer.data[0]);
-	printk(KERN_INFO "si700x: usb %x\n", dev->buffer.data[1]);
-	printk(KERN_INFO "si700x: usb %x\n", dev->buffer.data[2]);
-	printk(KERN_INFO "si700x: usb %x\n", dev->buffer.data[3]);
+	mutex_lock(&dev->lock);
+	/* saving the original data in the buffer for the USB read function */
+	if (copy_from_user(&dev->buffer, user_buffer, dev->buffer_size)) {
+		printk(KERN_ERR "Si700x: failed to copy data from user space\n");
+		mutex_unlock(&dev->lock);
+		return -EFAULT;
+	}
 
 	dev->buffer_status = 0;
 
@@ -167,10 +183,12 @@ static ssize_t si700x_write(struct file *f, const char __user *user_buffer, size
 		&actual_length, 0);		// bytes written, interval
 	if (retval < 0) {
 		printk(KERN_ERR "Si700x: failed to write URB\n");
+		mutex_unlock(&dev->lock);
 		return retval;
 	}
 
 	dev->buffer_status = 1;
+	mutex_unlock(&dev->lock);
 
 	return actual_length;
 }
@@ -184,7 +202,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	u8 board_id = 0;
 	u16 port_id = 0;
 
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 
 	dev = (struct si700x_dev *)f->private_data;
 
@@ -200,6 +218,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	if (retval)
 		return -EFAULT;
 
+	mutex_lock(&dev->lock);
 	switch (cmd) {
 
 	case SI700X_LED_ON:
@@ -210,9 +229,11 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			1, 0,					// value, index
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
-			printk(KERN_ERR "Si700x: failed to turn the LED ON\n");
+			printk(KERN_ERR "Si700x: failed to turn ON the LED\n");
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return 0;
 
 	case SI700X_LED_OFF:
@@ -223,9 +244,11 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			0, 0,					// value, index
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
-			printk(KERN_ERR "Si700x: failed to turn the LED OFF\n");
+			printk(KERN_ERR "Si700x: failed to turn OFF the LED\n");
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return 0;
 
 	case SI700X_VERSION:
@@ -237,8 +260,10 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			&version, 2, 0);			// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to read version number\n");
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return __put_user(version, (u16 __user *)arg);
 
 	case SI700X_PORT_COUNT:
@@ -250,8 +275,10 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			&port_count, 1, 0);			// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to read port count\n");
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return __put_user(port_count, (u8 __user *)arg);
 
 	case SI700X_BOARDID:
@@ -263,8 +290,10 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			&board_id, 1, 0);			// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to read board id\n");
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return __put_user(board_id, (u8 __user *)arg);
 
 	case SI700X_SETPROG_ON:
@@ -275,9 +304,11 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			1, 0,					// value, index - port
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
-			printk(KERN_ERR "Si700x: failed to turn programming ON\n");
+			printk(KERN_ERR "Si700x: failed to turn ON the programming mode\n");
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return 0;
 
 	case SI700X_SETPROG_OFF:
@@ -288,14 +319,15 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			0, 0,					// value, index - port
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
-			printk(KERN_ERR "Si700x: failed to turn programming OFF\n");
+			printk(KERN_ERR "Si700x: failed to turn OFF the programming mode\n");
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return 0;
 
 	case SI700X_SETSLEEP_ON:
 		port_id = arg;
-		printk(KERN_ERR "Si700x: sleeping ON port %d\n", port_id);
 		/* turn on sleeping */
 		retval = usb_control_msg(dev->udev,
 			usb_sndctrlpipe(dev->udev, 0),
@@ -303,14 +335,15 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			0, port_id,				// value, index - port
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
-			printk(KERN_ERR "Si700x: failed to turn sleeping ON for port %d\n", port_id);
+			printk(KERN_ERR "Si700x: failed to turn ON the sleeping for port %d\n", port_id);
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return 0;
 
 	case SI700X_SETSLEEP_OFF:
 		port_id = arg;
-		printk(KERN_ERR "Si700x: sleeping OFF port %d\n", port_id);
 		/* turn off sleeping */
 		retval = usb_control_msg(dev->udev,
 			usb_sndctrlpipe(dev->udev, 0),
@@ -318,12 +351,15 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			0, port_id,				// value, index - port
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
-			printk(KERN_ERR "Si700x: failed to turn sleeping OFF for port %d\n", port_id);
+			printk(KERN_ERR "Si700x: failed to turn OFF the sleeping for port %d\n", port_id);
+			mutex_unlock(&dev->lock);
 			return retval;
 		}
+		mutex_unlock(&dev->lock);
 		return 0;
 
 	}
+	mutex_unlock(&dev->lock);
 	return -EINVAL;
 }
 
@@ -348,14 +384,17 @@ static int si700x_probe(struct usb_interface *interface,
 	struct usb_host_interface *iface_desc;
 	int retval = -ENOMEM;
 
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 	
 	dev = kmalloc(sizeof(struct si700x_dev), GFP_KERNEL);
 	if (!dev) {
-		printk(KERN_ERR "Si700x: cannnot allocate memory for device structure\n");
+		printk(KERN_ERR "Si700x: failed to allocate memory for device\n");
 		return -ENOMEM;
 	}
 	memset(dev, 0x00, sizeof(dev));
+
+	mutex_init(&dev->lock);
+	mutex_lock(&dev->lock);
 	dev->interface = interface;
 	dev->udev = interface_to_usbdev(interface);
 	dev->buffer_size = sizeof(dev->buffer);
@@ -366,12 +405,14 @@ static int si700x_probe(struct usb_interface *interface,
 
 	retval = usb_register_dev(interface, &si700x_class);
 	if (retval < 0) {
-		printk(KERN_ERR "Si700x: not able to get minor for this device\n");
+		printk(KERN_ERR "Si700x: failed to get minor number\n");
 		usb_set_intfdata(interface, NULL);
+		mutex_unlock(&dev->lock);
 		kfree(dev);
 		return retval;
 	}
-	printk(KERN_INFO "Si700x: minor obtained %d\n", interface->minor);
+	mutex_unlock(&dev->lock);
+	printk(KERN_INFO "Si700x: minor number obtained %d\n", interface->minor);
 	return 0;
 }
 
@@ -380,11 +421,13 @@ static void si700x_disconnect(struct usb_interface *interface)
 	struct si700x_dev *dev;
 	int minor = interface->minor;
 
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 
 	dev = usb_get_intfdata(interface);
+	mutex_lock(&dev->lock);
 	usb_deregister_dev(interface, &si700x_class);
 	usb_set_intfdata(interface, NULL);
+	mutex_unlock(&dev->lock);
 	kfree(dev);
 	printk(KERN_INFO "Si700x: USB #%d now disconnted\n", minor);
 }
@@ -406,11 +449,11 @@ static int __init si700x_init(void)
 {
 	int retval;
 
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 
 	retval = usb_register(&si700x_driver);
 	if (retval) {
-		printk(KERN_ERR "Si700x: failed to register the usb device\n");
+		printk(KERN_ERR "Si700x: failed to register usb device\n");
 		return retval;
 	}
 	return 0;
@@ -418,7 +461,7 @@ static int __init si700x_init(void)
 
 static void __exit si700x_exit(void)
 {
-	printk(KERN_INFO "Si700x: %s\n", __func__);
+	pr_debug("Si700x: %s\n", __func__);
 
 	usb_deregister(&si700x_driver);
 }
