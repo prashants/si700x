@@ -1,3 +1,27 @@
+/*
+* Copyright (C) 2012 Prashant Shah, pshah.mumbai@gmail.com
+* Copyright (C) 2012 Silicon Labs, Inc. (www.silabs.com)
+*
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation; either version 2 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program; if not, write to the Free Software
+* Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+*/
+
+/*
+ * Silicon Labs Si700x USB Evaluation Board driver.
+ * http://www.silabs.com
+ */
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -33,13 +57,13 @@ static int si700x_open(struct inode *i, struct file *f)
 
 	interface = usb_find_interface(&si700x_driver, minor);
 	if (!interface) {
-		printk(KERN_ERR "Si700x: failed to find device for minor %d", minor);
+		printk(KERN_ERR "Si700x: failed to find interface for minor %d", minor);
 		return -ENODEV;
 	}
 
 	dev = usb_get_intfdata(interface);
 	if (!dev) {
-		printk(KERN_ERR "Si700x: failed to get device from interface\n");
+		printk(KERN_ERR "Si700x: failed to find device for minor %d\n", minor);
 		return -ENODEV;
 	}
 
@@ -221,8 +245,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to turn ON the LED\n");
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return 0;
@@ -236,8 +259,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to turn OFF the LED\n");
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return 0;
@@ -251,8 +273,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			&version, 2, 0);			// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to read version number\n");
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return __put_user(version, (u16 __user *)arg);
@@ -266,8 +287,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			&port_count, 1, 0);			// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to read port count\n");
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return __put_user(port_count, (u8 __user *)arg);
@@ -281,8 +301,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			&board_id, 1, 0);			// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to read board id\n");
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return __put_user(board_id, (u8 __user *)arg);
@@ -296,8 +315,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to turn ON the programming mode\n");
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return 0;
@@ -311,8 +329,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to turn OFF the programming mode\n");
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return 0;
@@ -327,8 +344,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to turn ON the sleeping for port %d\n", port_id);
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return 0;
@@ -343,8 +359,7 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 			NULL, 0, 0);				// data, size, timeout
 		if (retval < 0) {
 			printk(KERN_ERR "Si700x: failed to turn OFF the sleeping for port %d\n", port_id);
-			mutex_unlock(&dev->lock);
-			return retval;
+			goto error;
 		}
 		mutex_unlock(&dev->lock);
 		return 0;
@@ -352,6 +367,9 @@ static long si700x_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	}
 	mutex_unlock(&dev->lock);
 	return -EINVAL;
+error:
+	mutex_unlock(&dev->lock);
+	return retval;
 }
 
 static struct file_operations si700x_fops = {
@@ -461,6 +479,6 @@ module_init(si700x_init);
 module_exit(si700x_exit);
 
 MODULE_AUTHOR("Prashant Shah <pshah.mumbai@gmail.com>");
-MODULE_DESCRIPTION("Silicon Labs Si700x USB Evaluation Module");
-MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Silicon Labs Si700x USB Evaluation Board");
+MODULE_LICENSE("GPL v2");
 
