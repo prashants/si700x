@@ -99,4 +99,13 @@
 /* Maximum number of transfer requests in a packet */
 #define MAX_XFER_COUNT   (MAX_PACKET_SIZE/(4+MAX_XFER_LENGTH))
 
+/* Usb transfer request */
+struct transfer_req {
+	u8 type;
+	u8 status;
+	u8 address;
+	u8 length;
+	u8 data[4];
+} __attribute__ ((__packed__));
+
 #endif

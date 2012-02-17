@@ -211,7 +211,6 @@ int get_temperature()
 
 	DELAY;
 	DELAY;
-	DELAY;
 
 	/* check status */
 	while (1) {
@@ -326,6 +325,7 @@ int get_humidity()
 		return -1;
 	}
 
+	DELAY;
 	DELAY;
 	DELAY;
 	DELAY;
