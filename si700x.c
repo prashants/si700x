@@ -33,6 +33,15 @@
 
 #include "si700x.h"
 
+/* Usb transfer request */
+struct transfer_req {
+	u8 type;
+	u8 status;
+	u8 address;
+	u8 length;
+	u8 data[4];
+} __attribute__ ((__packed__));
+
 struct si700x_dev {
 	struct usb_device *udev;		/* the usb device for this device */
 	struct usb_interface *interface;	/* the interface for this device */

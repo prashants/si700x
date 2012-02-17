@@ -27,7 +27,7 @@ void fast_conversion(int);
 int heater(int);
 unsigned char get_device_id();
 
-#define DELAY sleep(3)
+#define DELAY sleep(1)
 
 int main()
 {
@@ -143,6 +143,7 @@ int main()
 
 int board_status(unsigned char board_id)
 {
+	int retval = 0;
 	struct transfer_req data;
 
 	/* clear status */
@@ -154,8 +155,12 @@ int board_status(unsigned char board_id)
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
-	read(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get board status command\n");
+		return 0;
+	}
+	retval = read(fd, &data, sizeof(data));
 	if (data.status == 1) {
 		return 1;
 	} else {
@@ -168,6 +173,7 @@ int get_temperature()
 	int counter = 0;
 	unsigned short value = 0;
 	unsigned short temp = 0;
+	int retval = 0;
 
 	struct transfer_req data;
 
@@ -180,8 +186,16 @@ int get_temperature()
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
-	read(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing clear status command\n");
+		return -1;
+	}
+	retval = read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading clear status command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error clearing status\n");
 		return -1;
@@ -202,14 +216,21 @@ int get_temperature()
 	data.data[1] = 0x11;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
-	read(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get temperature command\n");
+		return -1;
+	}
+	retval = read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading get temperature command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error writing temparature command\n");
 		return -1;
 	}
 
-	DELAY;
 	DELAY;
 
 	/* check status */
@@ -222,8 +243,16 @@ int get_temperature()
 		data.data[1] = 0x00;
 		data.data[2] = 0x00;
 		data.data[3] = 0x00;
-		write(fd, &data, sizeof(data));
-		read(fd, &data, sizeof(data));
+		retval = write(fd, &data, sizeof(data));
+		if (retval < 0) {
+			printf("Error writing get status command\n");
+			return -1;
+		}
+		retval = read(fd, &data, sizeof(data));
+		if (retval < 0) {
+			printf("Error reading get status command\n");
+			return -1;
+		}
 		if (data.status != 1) {
 			printf("Error reading status\n");
 			return -1;
@@ -249,8 +278,16 @@ int get_temperature()
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get data byte 1 command\n");
+		return -1;
+	}
 	read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading get date byte 1 command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error reading data register 1\n");
 		return -1;
@@ -270,7 +307,15 @@ int get_temperature()
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
 	write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get data byte 2 command\n");
+		return -1;
+	}
 	read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading get data byte 2 command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error reading data register 2\n");
 		return -1;
@@ -285,6 +330,7 @@ int get_humidity()
 	int counter = 0;
 	unsigned short value = 0;
 	unsigned short temp = 0;
+	int retval = 0;
 
 	struct transfer_req data;
 
@@ -298,7 +344,15 @@ int get_humidity()
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
 	write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing clear status command\n");
+		return -1;
+	}
 	read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading clear status command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error clearing status\n");
 		return -1;
@@ -318,19 +372,25 @@ int get_humidity()
 		data.data[1] = 0x20 | 0x01;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
-	read(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get humidity command\n");
+		return -1;
+	}
+	retval = read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get humidity command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error writing humidity command\n");
 		return -1;
 	}
 
 	DELAY;
-	DELAY;
-	DELAY;
-	DELAY;
 
 	/* check status */
+	counter = 0;
 	while (1) {
 		data.type = XFER_TYPE_WRITE_READ;
 		data.status = 0x00;
@@ -340,8 +400,16 @@ int get_humidity()
 		data.data[1] = 0x00;
 		data.data[2] = 0x00;
 		data.data[3] = 0x00;
-		write(fd, &data, sizeof(data));
-		read(fd, &data, sizeof(data));
+		retval = write(fd, &data, sizeof(data));
+		if (retval < 0) {
+			printf("Error writing get status command\n");
+			return -1;
+		}
+		retval = read(fd, &data, sizeof(data));
+		if (retval < 0) {
+			printf("Error reading get status command\n");
+			return -1;
+		}
 		if (data.status != 1) {
 			printf("Error reading status\n");
 			return -1;
@@ -366,8 +434,16 @@ int get_humidity()
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
-	read(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get data register 1 command\n");
+		return -1;
+	}
+	retval = read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading get data register 1 command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error reading data register 1\n");
 		return -1;
@@ -386,8 +462,16 @@ int get_humidity()
 	data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
-	read(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get data register 2 command\n");
+		return -1;
+	}
+	retval = read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading get data register 2 command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error reading data register 2\n");
 		return -1;
@@ -404,6 +488,7 @@ int get_humidity()
  */
 int heater(int status)
 {
+	int retval = 0;
 	struct transfer_req data;
 
 	data.type = XFER_TYPE_WRITE;
@@ -417,8 +502,16 @@ int heater(int status)
 		data.data[1] = 0x00;
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
-	read(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing heater command\n");
+		return -1;
+	}
+	retval = read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading heater command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error setting heater\n");
 		return -1;
@@ -445,6 +538,7 @@ void fast_conversion(int status)
 unsigned char get_device_id()
 {
 	unsigned char value = 0;
+	int retval = 0;
 
 	struct transfer_req data;
 
@@ -456,8 +550,16 @@ unsigned char get_device_id()
 	data.data[0] = REG_DEVICE_ID; 
 	data.data[2] = 0x00;
 	data.data[3] = 0x00;
-	write(fd, &data, sizeof(data));
-	read(fd, &data, sizeof(data));
+	retval = write(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error writing get device id command\n");
+		return -1;
+	}
+	retval = read(fd, &data, sizeof(data));
+	if (retval < 0) {
+		printf("Error reading get device id command\n");
+		return -1;
+	}
 	if (data.status != 1) {
 		printf("Error getting I2C sensor device ID\n");
 		return -1;
