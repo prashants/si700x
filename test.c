@@ -172,7 +172,7 @@ int get_temperature()
 {
 	int counter = 0;
 	unsigned short value = 0;
-	unsigned short temp = 0;
+	unsigned char temp = 0;
 	int retval = 0;
 
 	struct transfer_req data;
@@ -293,6 +293,7 @@ int get_temperature()
 		return -1;
 	}
 	value = data.data[0];
+	value = value & 0x00FF; /* clearing the higher 8 bit */
 	value = value << 6;
 
 	DELAY;
@@ -321,7 +322,7 @@ int get_temperature()
 		return -1;
 	}
 	temp = data.data[0];
-	value = value | (temp >> 2);
+	value = (value | (temp >> 2));
 	return value;
 }
 
@@ -329,7 +330,7 @@ int get_humidity()
 {
 	int counter = 0;
 	unsigned short value = 0;
-	unsigned short temp = 0;
+	unsigned char temp = 0;
 	int retval = 0;
 
 	struct transfer_req data;
@@ -449,6 +450,7 @@ int get_humidity()
 		return -1;
 	}
 	value = data.data[0];
+	value = value & 0x00FF; /* clearing the higher 8 bit */
 	value = value << 4;
 
 	DELAY;
@@ -477,7 +479,7 @@ int get_humidity()
 		return -1;
 	}
 	temp = data.data[0];
-	value = value | (temp >> 4);
+	value = (value | (temp >> 4));
 	return value;
 }
 
