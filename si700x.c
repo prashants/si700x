@@ -20,6 +20,14 @@
 /*
  * Silicon Labs Si700x USB Evaluation Board driver.
  * http://www.silabs.com
+ * The board uses default control endpoint to get and set board level
+ * configuration details which are accessed by IOCTL calls.
+ * It uses the IN and OUT interrupt endpoints to receive and send data
+ * to the sensors connected on its ports. The protocol to read data is
+ * to write the read command first followed by a read operation. Similary
+ * to write data, first it needs to write the write command followed by a
+ * read operation to get the status of the write command.
+ * The format of the data is as per the transfer_req structure.
  */
 
 #include <linux/kernel.h>
